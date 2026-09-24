@@ -19,13 +19,42 @@ Peer dependency: `react >= 18`. No other runtime dependencies.
 
 ## The pieces
 
+Two shapes of assistant share one runtime and one wire format.
+
+### Generic: any assistant
+
 | Export | What it does |
 |---|---|
-| `createLangGraphRuntime(endpoint, fetch?)` | POSTs `{ threadId, message?, … }`, reads the SSE response, hands you one `LangGraphStreamEvent` per `data:` frame. Malformed frames are dropped, never thrown. |
-| `AVATAR_STATE_TRANSITIONS` | The state machine as a table: backend `(node, actionStatus)` → frontend `AvatarStatus`, each with a description. |
-| `resolveAvatarStatus(actionStatus)` | Looks a status up in that table; unknown input falls back to `idle`, because it came off the network. |
-| `describeAvatarStatus(status)` | The row's description, used as the avatar's accessible label. |
-| `<AiAssistantProvider>` / `useAiAssistant()` | Commerce-shaped provider: messages, recommendations, a human-in-the-loop proposal to approve or reject, and host callbacks for every side effect. |
+| `useAssistantStream(endpoint, { history? })` | A streaming chat: `{ messages, actionStatus, isStreaming, send, stop }`. Sends the last `history` turns with each message, so the backend can stay stateless. |
+| `useSwarm(url, { terminal?, init? })` | Follows a multi-agent run: `{ agents: { [node]: status }, run }`, one status per graph node, so each agent can be drawn as its own character. Reconnects until the run is terminal; expects the server to replay its log on each connect. |
+| `createStatusResolver(table, fallback)` | Your own state machine: backend `actionStatus` → your avatar vocabulary (`thinking`, `speaking`, `sleeping`…). Unknown input falls back. |
+| `applyChatEvent`, `reduceSwarm` | The pure folds behind the two hooks, for non-React hosts and for tests. |
+| `createLangGraphRuntime(endpoint, fetch?)` | POSTs `{ threadId, message?, messages?, … }` and hands you one event per SSE frame. Malformed frames are dropped, never thrown. |
+| `readSseStream(body, id, onEvent)` | The frame reader on its own, for a GET stream. |
+
+```tsx
+const resolve = createStatusResolver(
+  [
+    { actionStatus: "processing", avatarStatus: "thinking" },
+    { actionStatus: "speaking", avatarStatus: "speaking" },
+    { actionStatus: "failed", avatarStatus: "error" },
+  ],
+  "idle",
+);
+
+function Chat() {
+  const { messages, actionStatus, send } = useAssistantStream("/api/assistant/chat");
+  const mood = resolve(actionStatus);        // drive your character with this
+  // …render messages, call send(text)
+}
+```
+
+### Commerce: the shopping assistant it was first built for
+
+| Export | What it does |
+|---|---|
+| `<AiAssistantProvider>` / `useAiAssistant()` | Messages, recommendations, a human-in-the-loop proposal to approve or reject, and host callbacks for every side effect. |
+| `AVATAR_STATE_TRANSITIONS`, `resolveAvatarStatus`, `describeAvatarStatus` | The commerce state machine as a table, its resolver and its accessible labels. |
 | `ProposalCard`, `ExplainabilityPanel`, `Avatar` | Minimal UI for the above. `Avatar` is only class names and data attributes to hang your own animation on. |
 
 ### Wire format
@@ -38,7 +67,8 @@ data: {"threadId":"…","node":"router_llm","actionStatus":"processing","state":
 
 `node` says which graph node emitted it (or `null`), `actionStatus` which phase
 the run is in, and `state` is a partial snapshot merged into the client's copy.
-The frontend never computes any of this, it only relays it.
+A chat backend that streams tokens adds `"delta": "…"`, which extends the reply
+instead of resending it. The frontend never computes any of this, it only relays it.
 
 ## Design rules
 

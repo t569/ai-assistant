@@ -74,12 +74,33 @@ export type LangGraphNode =
  */
 export type GraphActionStatus = "idle" | "processing" | "awaiting_shopper_approval" | "syncing" | "failed" | "escalated";
 
-/** A single event decoded off the LangGraph stream. The frontend never computes this, only relays it. */
-export interface LangGraphStreamEvent {
+/**
+ * A single event decoded off the LangGraph stream. The frontend never computes this, only relays it.
+ *
+ * Generic so a host whose graph is not the commerce one can name its own nodes, statuses and
+ * state; the defaults are the commerce contract, so existing code reads exactly as before.
+ */
+export interface LangGraphStreamEvent<
+  N extends string = LangGraphNode,
+  A extends string = GraphActionStatus,
+  S = AssistantState,
+> {
   threadId: string;
-  node: LangGraphNode | null;
-  actionStatus: GraphActionStatus;
-  state: Partial<AssistantState>;
+  node: N | null;
+  actionStatus: A;
+  state: Partial<S>;
+  /**
+   * Text to append to the reply being streamed, when the backend streams tokens.
+   * Carried beside `state` rather than inside it because re-sending the whole reply per token
+   * is quadratic in its length.
+   */
+  delta?: string;
+}
+
+/** One turn of a plain conversation. */
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 /** Approval decision for a proposal parked at `prepare_proposal` awaiting HITL input. */
